@@ -17,21 +17,34 @@ from client import Client
 from federated_learning import aggregators
 from copy import deepcopy
 import torch
-
+import random
 
 def train_subset_of_clients(epoch, args, clients, poisoned_workers):
     """
-    Train a subset of clients per round.
+    Train a subset of clients per round, ensuring a fixed number of poisoned workers per epoch.
     """
     kwargs = args.get_round_worker_selection_strategy_kwargs()
     kwargs["current_epoch_number"] = epoch
+    num_workers_per_round = kwargs.get("NUM_WORKERS_PER_ROUND", args.get_num_workers())
 
-    random_workers = args.get_round_worker_selection_strategy().select_round_workers(
-        list(range(args.get_num_workers())),
-        poisoned_workers,
-        kwargs)
+    all_workers = list(range(args.get_num_workers()))
 
-    # train selected clients
+    # Determine number of poisoned workers to include this epoch
+    num_poisoned_in_epoch = min(len(poisoned_workers), num_workers_per_round)
+
+    # Select poisoned workers (fixed set or randomly shuffled subset)
+    poisoned_in_epoch = random.sample(poisoned_workers, num_poisoned_in_epoch)
+
+    # Select remaining workers randomly from non-poisoned
+    remaining_slots = num_workers_per_round - len(poisoned_in_epoch)
+    non_poisoned_workers = list(set(all_workers) - set(poisoned_in_epoch))
+    selected_non_poisoned = random.sample(non_poisoned_workers, remaining_slots)
+
+    # Combine
+    random_workers = poisoned_in_epoch + selected_non_poisoned
+    random.shuffle(random_workers)  # optional: mix poisoned workers
+
+    # --- rest of your training code remains unchanged ---
     for client_idx in random_workers:
         args.get_logger().info(
             "Training epoch #{} on client #{}",
@@ -42,102 +55,54 @@ def train_subset_of_clients(epoch, args, clients, poisoned_workers):
 
     args.get_logger().info("Aggregating client parameters")
 
-    # collect parameters from selected clients
     parameters = [clients[client_idx].get_nn_parameters() for client_idx in random_workers]
 
     # --- Defense-aware aggregation ---
-    global_params = deepcopy(clients[0].get_nn_parameters())  # server’s reference
+    global_params = deepcopy(clients[0].get_nn_parameters())
     deltas = []
     for client_params in parameters:
         delta = {}
         for k in client_params.keys():
-            delta[k] = (
-                client_params[k].detach().cpu()
-                - global_params[k].detach().cpu()
-            )
+            delta[k] = client_params[k].detach().cpu() - global_params[k].detach().cpu()
         deltas.append(delta)
 
     agg_name = getattr(args, "aggregator", "simple")
     if agg_name == "simple":
-        # default simple average
         new_nn_params = average_nn_parameters(parameters)
         info = {"filtered_count": 0, "kept_indices": list(range(len(parameters)))}
     elif agg_name == "norm_filter":
-        agg_delta, info = aggregators.norm_filter_then_average(
-            deltas, z_threshold=getattr(args, "z_threshold", 2.0)
-        )
-        new_nn_params = {}
-        for k in global_params.keys():
-            device = global_params[k].device
-            new_nn_params[k] = (
-                global_params[k].detach().cpu() + agg_delta[k].to(device)
-            ).to(device)
+        agg_delta, info = aggregators.norm_filter_then_average(deltas, z_threshold=getattr(args, "z_threshold", 2.0))
+        new_nn_params = {k: global_params[k].detach().cpu() + agg_delta[k].to(global_params[k].device) for k in global_params.keys()}
     elif agg_name == "some_mean":
-        agg_delta, info = aggregators.some_mean_filter_then_average(
-            deltas, z_threshold=getattr(args, "z_threshold", 2.0)
-        )
-        new_nn_params = {}
-        for k in global_params.keys():
-            device = global_params[k].device
-            new_nn_params[k] = (
-                global_params[k].detach().cpu() + agg_delta[k].to(device)
-            ).to(device)
+        agg_delta, info = aggregators.some_mean_filter_then_average(deltas, z_threshold=getattr(args, "z_threshold", 2.0))
+        new_nn_params = {k: global_params[k].detach().cpu() + agg_delta[k].to(global_params[k].device) for k in global_params.keys()}
     elif agg_name == "median":
         agg_delta, info = aggregators.median_filter_then_average(deltas)
-        new_nn_params = {}
-        for k in global_params.keys():
-            device = global_params[k].device
-            new_nn_params[k] = (
-                global_params[k].detach().cpu() + agg_delta[k].to(device)
-            ).to(device)
-    
+        new_nn_params = {k: global_params[k].detach().cpu() + agg_delta[k].to(global_params[k].device) for k in global_params.keys()}
     elif agg_name == "krum":
-        agg_delta, info = aggregators.krum_filter_then_average(
-            deltas, f=args.get_num_poisoned_workers(), m=1
-        )
-        new_nn_params = {}
-        for k in global_params.keys():
-            device = global_params[k].device
-            new_nn_params[k] = (
-                global_params[k].detach().cpu() + agg_delta[k].to(device)
-            ).to(device)
-
+        agg_delta, info = aggregators.krum_filter_then_average(deltas, f=args.get_num_poisoned_workers(), m=1)
+        new_nn_params = {k: global_params[k].detach().cpu() + agg_delta[k].to(global_params[k].device) for k in global_params.keys()}
     elif agg_name == "trimmed_mean":
-        # b is typically the number of faulty clients, same as f
         b = args.get_num_poisoned_workers()
         agg_delta, info = aggregators.trimmed_mean_filter_then_average(deltas, b=b)
-        new_nn_params = {}
-        for k in global_params.keys():
-            device = global_params[k].device
-            new_nn_params[k] = (
-                global_params[k].detach().cpu() + agg_delta[k].to(device)
-            ).to(device)
+        new_nn_params = {k: global_params[k].detach().cpu() + agg_delta[k].to(global_params[k].device) for k in global_params.keys()}
     else:
         new_nn_params = average_nn_parameters(parameters)
         info = {"filtered_count": 0, "kept_indices": list(range(len(parameters)))}
 
-    # update all clients with new global params
+    # update all clients
     for client in clients:
-        args.get_logger().info(
-            "Updating parameters on client #{}", str(client.get_client_index())
-        )
+        args.get_logger().info("Updating parameters on client #{}", str(client.get_client_index()))
         client.update_nn_parameters(new_nn_params)
 
-    # log defense info
     try:
         filtered = info.get("filtered_count", 0)
         kept = info.get("kept_indices", None)
-        args.get_logger().info(
-            "[Aggregation] method={} filtered={} kept={}",
-            agg_name,
-            filtered,
-            kept,
-        )
+        args.get_logger().info("[Aggregation] method={} filtered={} kept={}", agg_name, filtered, kept)
     except Exception:
         pass
 
     return clients[0].test(), random_workers
-
 
 def create_clients(args, train_data_loaders, test_data_loader):
     """
@@ -152,15 +117,23 @@ def create_clients(args, train_data_loaders, test_data_loader):
 def run_machine_learning(clients, args, poisoned_workers):
     """
     Complete machine learning over a series of clients.
+    Logs which workers were selected and which of them were poisoned each epoch.
     """
     epoch_test_set_results = []
     worker_selection = []
+
     for epoch in range(1, args.get_num_epochs() + 1):
         results, workers_selected = train_subset_of_clients(
             epoch, args, clients, poisoned_workers
         )
+
+        poisoned_in_epoch = list(set(workers_selected) & set(poisoned_workers))
+
+        worker_selection.append((workers_selected, poisoned_in_epoch))
         epoch_test_set_results.append(results)
-        worker_selection.append(workers_selected)
+
+        # optional: console log
+        print(f"Epoch {epoch}: {workers_selected} → poisoned: {poisoned_in_epoch}")
 
     return convert_results_to_csv(epoch_test_set_results), worker_selection
 
