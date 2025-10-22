@@ -3,17 +3,32 @@ import matplotlib.pyplot as plt
 
 # Dictionary mapping experiment IDs to their strategy names for clarity
 strategies = {
-    '3000' : 'no attackers',
-    # '3001' : '20 attackers no defense',
+    # '3000' : 'no attackers',
+    #  '3001' : '20 attackers no defense',
     # '3002' : '20 attackers strategy:mean',
     # '3003' : '20 attackers strategy:median',
     # '3004' : '10 attackers strategy: krum',
-    '3005' : '10 attackers strategy: trimmed mean'
+    # '3005' : '10 attackers strategy: trimmed mean',
+    # '3011' : '3 attackers strategy: trimmed mean multi-label flip',
+    # '3012' : '5 attackers strategy: simple multi-label flip',
+    # '2001': 'no attackers 50',
+    # '2002': '5 attackers no defense 50',
+    # '2003': '15 attackers no defense 50',
+    # '2004': '15 attackers strategy: trimmed mean',
+    # '2005': '15 attackers strategy: krum', 
+    # #'2006': '15 attackers strategy: some_mean', #very bad result huge fluctuations
+    # '2007': '15 attackers strategy: median 50' 
+
+    '1000': 'no attackers 100 epoch',
+    '1001': '10 attackers no defense 100 epoch',
+    '1002': '10 attackers strategy: trimmed_mean 100 epoch',
+    '1003': '10 attackers strategy: median 100 epoch'
 }
 
 # --- Data Extraction ---
 all_accuracy_data = {}
 all_loss_data = {}
+all_precision_data = {}
 
 for exp_id in strategies.keys():
     try:
@@ -23,15 +38,22 @@ for exp_id in strategies.keys():
 
         accuracy_list = []
         loss_list = []
+        precision_list = []
+        recall_list = []
+        f1_list = []
 
         for line in lines:
             parts = line.strip().split(',')
             if len(parts) >= 2:
                 accuracy_list.append(float(parts[0]))
                 loss_list.append(float(parts[1]))
+                precision_list.append(float(parts[2]))
+                
         
         all_accuracy_data[exp_id] = accuracy_list
         all_loss_data[exp_id] = loss_list
+        all_precision_data[exp_id] = precision_list
+        
 
     except FileNotFoundError:
         print(f"File {file_path} not found.")

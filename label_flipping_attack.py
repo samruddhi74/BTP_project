@@ -42,13 +42,13 @@ def multi_label_flipper(Y, classes):
 
 
 if __name__ == '__main__':
-    START_EXP_IDX = 3011
+    START_EXP_IDX = 1003    
     NUM_EXP = 1
-    NUM_POISONED_WORKERS = 3
+    NUM_POISONED_WORKERS = 10
     REPLACEMENT_METHOD = multi_label_flipper
     KWARGS = {
-        "NUM_WORKERS_PER_ROUND" : 10,
-        "aggregator" : "trimmed_mean"
+        "NUM_WORKERS_PER_ROUND" : 40,
+        "aggregator" : "median",
     }
 
     for experiment_id in range(START_EXP_IDX, START_EXP_IDX + NUM_EXP):
