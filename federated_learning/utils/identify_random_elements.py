@@ -13,13 +13,15 @@ def identify_random_elements(max, num_random_elements):
     if num_random_elements > max:
         return []
 
-    ids = []
-    x = 0
-    while x < num_random_elements:
-        rand_int = random.randint(0, max - 1)
+    ids = [i for i in range(num_random_elements)]
+    # x = 0
+    
+    # while x < num_random_elements:
+    #     rand_int = random.randint(0, max - 1)
 
-        if rand_int not in ids:
-            ids.append(rand_int)
-            x += 1
+    #     if rand_int not in ids:
+    #         ids.append(rand_int)
+    #         x += 1
 
+    
     return ids

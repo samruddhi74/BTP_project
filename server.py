@@ -70,9 +70,9 @@ def train_subset_of_clients(epoch, args, clients, poisoned_workers):
     if agg_name == "simple":
         new_nn_params = average_nn_parameters(parameters)
         info = {"filtered_count": 0, "kept_indices": list(range(len(parameters)))}
-    elif agg_name == "norm_filter":
-        agg_delta, info = aggregators.norm_filter_then_average(deltas, z_threshold=getattr(args, "z_threshold", 2.0))
-        new_nn_params = {k: global_params[k].detach().cpu() + agg_delta[k].to(global_params[k].device) for k in global_params.keys()}
+    # elif agg_name == "norm_filter":
+    #     agg_delta, info = aggregators.norm_filter_then_average(deltas, z_threshold=getattr(args, "z_threshold", 2.0))
+    #     new_nn_params = {k: global_params[k].detach().cpu() + agg_delta[k].to(global_params[k].device) for k in global_params.keys()}
     elif agg_name == "some_mean":
         agg_delta, info = aggregators.some_mean_filter_then_average(deltas, z_threshold=getattr(args, "z_threshold", 2.0))
         new_nn_params = {k: global_params[k].detach().cpu() + agg_delta[k].to(global_params[k].device) for k in global_params.keys()}
